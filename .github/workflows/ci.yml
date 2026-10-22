@@ -1,0 +1,87 @@
+name: PMS Continuous Integration
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  foundation-check:
+    name: Repository Foundation & Markdown Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Documentation & Schema Presence
+        run: |
+          echo "Verifying core architectural and database documentation..."
+          test -f README.md || (echo "Missing README.md" && exit 1)
+          test -f docs/SRS.md || (echo "Missing docs/SRS.md" && exit 1)
+          test -f docs/API_AND_SCREENS.md || (echo "Missing docs/API_AND_SCREENS.md" && exit 1)
+          test -f docs/ARCHITECTURE.md || (echo "Missing docs/ARCHITECTURE.md" && exit 1)
+          test -f database/schema.prisma || (echo "Missing database/schema.prisma" && exit 1)
+          echo "Foundation verification passed."
+
+  # NOTE: The build-and-test job below represents the automated CI pipeline
+  # that activates as soon as apps/web and apps/api are scaffolded in Phase 1.
+  code-quality-and-tests:
+    name: Lint, Typecheck & Tests (Planned - Phase 1 Active)
+    runs-on: ubuntu-latest
+    needs: foundation-check
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Check Workspace Scaffolding Status
+        id: check-scaffold
+        run: |
+          if [ -d "apps/api" ] && [ -d "apps/web" ]; then
+            echo "scaffolded=true" >> $GITHUB_OUTPUT
+            echo "Apps detected. Running active pipeline."
+          else
+            echo "scaffolded=false" >> $GITHUB_OUTPUT
+            echo "Phase 0 foundation phase: apps/ are not yet scaffolded. Skipping code builds until Phase 1."
+          fi
+
+      - name: Install dependencies (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Formatting (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm format:check
+
+      - name: Lint Code (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm lint
+
+      - name: Run Typechecks (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm typecheck
+
+      - name: Run Unit & Integration Tests (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm test
+
+      - name: Build Production Bundles (when scaffolded)
+        if: steps.check-scaffold.outputs.scaffolded == 'true'
+        run: pnpm build
+
