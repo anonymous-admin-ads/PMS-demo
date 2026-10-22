@@ -1,10 +1,22 @@
 # Database Design & Relational Data Architecture
 
-This document defines the relational database architecture for the **Property Management System (PMS)**. The schema is designed for PostgreSQL using Prisma ORM, emphasizing data integrity, strict multi-tenant owner scoping, financial precision, and immutable historical records.
+This document defines the relational database architecture for the **Property Management System (PMS)**. The schema is designed for **PostgreSQL hosted and managed on Supabase** using **Prisma ORM**, emphasizing data integrity, strict multi-tenant owner scoping, financial precision, and immutable historical records.
 
 ---
 
-## 1. Entity-Relationship (ER) Diagram
+## 1. Managed Database Provider: Supabase PostgreSQL
+
+The PMS uses Supabase exclusively as a **managed PostgreSQL database platform** for Phase 1. 
+
+* **Hosting Model:** Managed PostgreSQL with automated high-availability infrastructure and physical hardware maintenance.
+* **Dual-Connection Architecture:**
+  1. **Runtime Connection Pooler (`DATABASE_URL`):** Connects to Supabase Supavisor on port `6543` in transaction pooling mode. This allows lightweight, high-concurrency connection multiplexing for Express API endpoints while protecting against PostgreSQL client exhaustion.
+  2. **Direct Connection (`DIRECT_URL`):** Connects directly to the PostgreSQL instance on port `5432` with SSL enabled (`sslmode=require`). Used exclusively by Prisma CLI for executing migrations and DDL operations where advisory locks are required.
+* **Architecture Boundary:** All domain models, financial constraints, and business logic reside in the Node.js/Express application. Supabase Auth and Supabase Storage are not enabled in Phase 1 and remain future architectural options.
+
+---
+
+## 2. Entity-Relationship (ER) Diagram
 
 ```mermaid
 erDiagram
@@ -39,7 +51,7 @@ erDiagram
 
 ---
 
-## 2. Entities, Ownership & Field Definitions
+## 3. Entities, Ownership & Field Definitions
 
 ### 2.1 Owner (`Owner`)
 Top-level security boundary representing a registered property owner/landlord.
@@ -170,9 +182,9 @@ Operational audit record of automated and manual database backups.
 
 ---
 
-## 3. Database Constraints & Performance Indexes
+## 4. Database Constraints & Performance Indexes
 
-### 3.1 Unique Constraints
+### 4.1 Unique Constraints
 1. `Unit`: `@@unique([propertyId, unitNumber])` — A property cannot have two identical unit codes.
 2. `Charge`: `@@unique([tenancyId, periodKey])` — Strictly prevents duplicate charges (e.g. two October Rent charges) for the same tenancy.
 3. `Bill`: `@@unique([billNumber])` — Unique invoice numbers.
@@ -180,14 +192,14 @@ Operational audit record of automated and manual database backups.
 5. `PaymentAllocation`: `@@unique([paymentId, chargeId])` — A single payment cannot allocate multiple separate line items to the exact same charge.
 6. `WaterBill`: `@@unique([chargeId])` — Exactly one charge is linked to a water billing calculation.
 
-### 3.2 Performance Indexes
+### 4.2 Performance Indexes
 * Multi-tenant queries: `@@index([ownerId])` on `Property`, `Tenant`, `Payment`, `Document`, `BackupLog`.
 * Financial lookups: `@@index([tenancyId, dueDate])` and `@@index([status, dueDate])` on `Charge` for rapid FIFO payment allocation and overdue calculation.
 * Occupancy lookups: `@@index([unitId, status])` on `Tenancy` to quickly filter active tenancies.
 
 ---
 
-## 4. Financial Invariants & Integrity Rules
+## 5. Financial Invariants & Integrity Rules
 
 1. **Exact Precision Storage:**
    All monetary amounts use PostgreSQL `NUMERIC(12, 2)` (Prisma `Decimal`). Floating-point types (`float`, `double`) are strictly prohibited in the database schema and application runtime.
@@ -207,7 +219,7 @@ Operational audit record of automated and manual database backups.
 
 ---
 
-## 5. Deletion, Archival & Audit Policies
+## 6. Deletion, Archival & Audit Policies
 
 * **RESTRICT Cascades on Financial Paths:**
   `onDelete: Restrict` is enforced across all core foreign keys (`Owner`, `Property`, `Unit`, `Tenant`, `Tenancy`, `Charge`, `Payment`). A property or tenant with associated financial records can never be hard-deleted.

@@ -1,7 +1,7 @@
 # Open Questions & Architecture Decision Records (ADR)
 
-**Document Version:** 2.0  
-**Status:** Living Document — Pending Client Approvals  
+**Document Version:** 2.1  
+**Status:** Living Document — Pending Client & Architecture Approvals  
 
 This document tracks all unconfirmed business rules, design trade-offs, and client decisions required for the **Property Management System (PMS)**. Each question outlines the available options, operational implications, and recommended default decisions.
 
@@ -16,8 +16,10 @@ This document tracks all unconfirmed business rules, design trade-offs, and clie
 | **OQ-03** | Overpayment Handling Policy | Financial / Ledger | High | Pending Client Approval | Phase 4 |
 | **OQ-04** | Late Fee Calculation & Application | Billing | Medium | Pending Client Approval | Phase 4 |
 | **OQ-05** | Security Deposit Handling & Escrow | Accounting | Medium | Pending Client Approval | Phase 3 |
-| **OQ-06** | Document Storage Provider (Local vs S3) | DevOps / Storage | Low | Recommended Default | Phase 6 |
-| **OQ-07** | Backup Retention Schedule | Operations / Legal | Low | Recommended Default | Phase 6 |
+| **OQ-06** | Supabase Production Plan (Free vs Pro) | Infrastructure / Cost | High | Pending Client Approval | Phase 8 |
+| **OQ-07** | Supabase Auth vs Custom Express JWT | Authentication | Medium | Decided (Express JWT for MVP) | Post-MVP |
+| **OQ-08** | Supabase Storage vs S3 / Local Disk | Storage (Module 9) | Medium | Decided (Local/S3 for MVP) | Post-MVP |
+| **OQ-09** | Off-Site Backup Schedule vs Supabase PITR | Operations (Module 10) | Medium | Recommended Default | Phase 6 |
 
 ---
 
@@ -84,7 +86,7 @@ This document tracks all unconfirmed business rules, design trade-offs, and clie
   2. **Option B (Automated Fixed Daily Penalty):**
      System automatically adds ₹100/day starting 3 days after `dueDate`.
      *Implication:* Requires an automated recurring cron job and complex reversal workflows if the landlord chooses to waive the fee.
-* **Architect Recommendation:** **Option A for MVP**, with Option B planned for Phase 7.
+* **Architect Recommendation:** **Option A for MVP**, with Option B planned for post-MVP.
 * **Blocking Status:** Non-blocking.
 
 ---
@@ -100,3 +102,44 @@ This document tracks all unconfirmed business rules, design trade-offs, and clie
 * **Architect Recommendation:** **Option A (Dedicated Deposit Tracking)**.
 * **Blocking Status:** Blocks Phase 3 Tenancy form design.
 
+---
+
+### OQ-06: Supabase Production Plan Selection (Free vs Pro)
+* **Context:** The database is officially hosted on Supabase. Should production run on the Free Tier or Pro Tier ($25/mo)?
+* **Options:**
+  1. **Option A (Free Tier for Staging, Pro Tier for Production - RECOMMENDED):**
+     Free tier used for development and staging. Production upgraded to Pro Tier ($25/mo) to eliminate auto-pausing after 7 days and enable daily automated backups with Point-in-Time Recovery (PITR).
+  2. **Option B (Free Tier for All Environments):**
+     Accepts risk of project auto-pausing if inactive for 7 days. Relies entirely on automated independent `pg_dump` cron jobs for backups.
+* **Architect Recommendation:** **Option A (Pro Tier for Production)** once real landlords and tenants are onboarded.
+* **Blocking Status:** Blocks Phase 8 production deployment.
+
+---
+
+### OQ-07: Authentication Strategy (Custom Express JWT vs Supabase Auth)
+* **Context:** Supabase provides built-in Auth (GoTrue), but the application is currently architected with custom Express JWT authentication (`bcryptjs` + JWT).
+* **Decision:** **Retain Custom Express JWT for MVP**.
+* **Rationale:**
+  * Keeps all authentication and authorization logic inside the single modular monolith.
+  * Avoids vendor lock-in and avoids running client-side Supabase SDK authentication loops.
+  * Supabase Auth can be re-evaluated post-MVP if OAuth/social logins or passwordless magic links are requested by the client.
+
+---
+
+### OQ-08: Document Storage Strategy (Local Disk / S3 vs Supabase Storage)
+* **Context:** Module 9 (Documents) requires storing lease agreements, ID proofs, and receipts.
+* **Decision:** **Retain Server Disk Storage with S3 Abstraction for MVP**.
+* **Rationale:**
+  * Uploads are secured behind the Express `/api/v1/documents/:id/download` endpoint with owner-scoped checks.
+  * Zero additional cloud setup required for local development and initial testing.
+  * Supabase Storage can be evaluated post-MVP if direct browser-to-bucket uploads with pre-signed URLs are required.
+
+---
+
+### OQ-09: Database Backup Schedule & Retention
+* **Context:** Data retention rules for landlord accounting and tax audits.
+* **Recommendation:**
+  * Daily `pg_dump` snapshots retained for **30 days**.
+  * Weekly snapshots retained for **12 weeks**.
+  * Year-end snapshots retained for **7 years** (Indian Income Tax Act audit requirement).
+* **Blocking Status:** Non-blocking for early phases.

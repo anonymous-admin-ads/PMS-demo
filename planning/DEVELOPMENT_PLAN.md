@@ -25,11 +25,11 @@ flowchart TD
 ## 2. Phase-by-Phase Execution Specifications
 
 ### Phase 0: Requirements, Open Questions & Architecture Approval
-* **Scope:** Audit workspace, establish foundational documentation, design relational schema with PostgreSQL/Prisma, define financial invariants, and map unresolved client decisions.
+* **Scope:** Audit workspace, establish foundational documentation, design relational schema with Supabase-hosted PostgreSQL and Prisma ORM, define financial invariants, configure dual-connection architecture (`DATABASE_URL` pooler and `DIRECT_URL` direct), and map unresolved client decisions.
 * **Dependencies:** None.
 * **Deliverables:**
   * Complete documentation suite (`README.md`, `SRS.md`, `ARCHITECTURE.md`, `SECURITY.md`, `TESTING_STRATEGY.md`, etc.).
-  * Updated Prisma schema supporting all 10 modules.
+  * Updated Prisma schema supporting all 10 modules with `directUrl` configuration.
   * Root workspace files (`pnpm-workspace.yaml`, `.env.example`, `.gitignore`).
 * **Testing Gate:** Documentation cross-reference verification and schema syntax validation.
 * **Status:** **COMPLETE (Current Baseline)**.
@@ -53,15 +53,17 @@ flowchart TD
 ---
 
 ### Phase 2: Database Schema, Migrations, Authentication & Owner Isolation
-* **Scope:** Apply PostgreSQL Prisma migrations in a development database, build owner registration, login, JWT token issuance, and implement the authoritative `ownerScope` middleware.
+* **Scope:** Provision Supabase development project, configure `DATABASE_URL` (pooler) and `DIRECT_URL` (direct), apply initial Prisma migrations to the hosted database, build owner registration, login, JWT token issuance, and implement the authoritative `ownerScope` middleware.
 * **Dependencies:** Phase 1.
 * **Implementation Order:**
-  1. Generate initial Prisma migration: `prisma migrate dev --name init_pms_schema`.
-  2. Implement password hashing using `bcryptjs` (cost factor 12).
-  3. Implement `/api/v1/auth/register`, `/api/v1/auth/login`, and `/api/v1/auth/me`.
-  4. Implement `requireAuth` and `ownerScope` middleware.
-  5. Build automated cross-owner IDOR test suite.
+  1. Developer manually provisions Supabase project and updates `.env` with connection credentials.
+  2. Generate and apply initial Prisma migration: `pnpm db:migrate --name init_pms_schema` (executes via `DIRECT_URL`).
+  3. Implement password hashing using `bcryptjs` (cost factor 12).
+  4. Implement `/api/v1/auth/register`, `/api/v1/auth/login`, and `/api/v1/auth/me`.
+  5. Implement `requireAuth` and `ownerScope` middleware.
+  6. Build automated cross-owner IDOR test suite.
 * **Testing Gate:**
+  * Supabase connectivity verified with TLS 1.3 (`sslmode=require`).
   * 100% of authentication unit and integration tests pass.
   * Cross-owner test explicitly verifies that Owner B cannot view or modify Owner A's records.
 

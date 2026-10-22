@@ -34,8 +34,8 @@ The **Property Management System (PMS)** replaces paper rent books and spreadshe
 | **Frontend** | React 18 + Vite + TypeScript | Sub-150KB gzipped bundle; fast rendering on low-end mobile devices. |
 | **Styling** | Tailwind CSS | Zero runtime CSS overhead, accessible touch ergonomics (44px targets). |
 | **Backend** | Node.js (LTS 20) + Express + TypeScript | Lightweight REST API; minimal memory footprint (<80 MB RAM). |
-| **Database** | PostgreSQL 15+ | Enterprise-grade financial integrity, `NUMERIC(12, 2)` decimal currency precision. |
-| **ORM** | Prisma ORM | Compile-time type safety, safe schema migrations, and atomic transactions. |
+| **Database** | PostgreSQL 15+ (Hosted on Supabase) | Managed cloud PostgreSQL with automated provisioning and transaction pooling (Supavisor). |
+| **ORM** | Prisma ORM | Compile-time type safety, safe schema migrations (`directUrl`), and atomic transactions. |
 | **Package Manager** | pnpm (Monorepo Workspaces) | Fast builds, strict dependency isolation, disk-efficient hard-linking. |
 
 ---
@@ -68,23 +68,27 @@ All architectural guidelines, requirements, and operating procedures are maintai
 ### 4.1 Prerequisites
 * **Node.js:** `>= 20.0.0`
 * **Package Manager:** `pnpm >= 9.0.0` (`npm install -g pnpm`)
-* **Database:** PostgreSQL 15+ (Local or running via Docker)
+* **Database:** Active Supabase project (or local Docker PostgreSQL for offline development)
 
-### 4.2 Local Environment Setup
-1. Clone the repository and copy the environment template:
+### 4.2 Supabase Database Setup (Recommended)
+1. Log in to [Supabase](https://supabase.com) and create a new project (e.g. `pms-dev`), selecting a region close to your target users (e.g., `ap-south-1` Mumbai).
+2. Copy the environment configuration template:
    ```bash
    cp .env.example .env
    ```
-2. Start local PostgreSQL via Docker:
+3. From your Supabase project dashboard (**Project Settings $\rightarrow$ Database**):
+   * Set `DATABASE_URL` to the **Connection Pooler** string (port `6543`, transaction mode with `?pgbouncer=true&sslmode=require`).
+   * Set `DIRECT_URL` to the **Direct Connection** string (port `5432` with `?sslmode=require`).
+4. Generate the Prisma Client:
    ```bash
-   docker run --name pms-postgres \
-     -e POSTGRES_USER=pms_user \
-     -e POSTGRES_PASSWORD=pms_password \
-     -e POSTGRES_DB=pms_dev \
-     -p 5432:5432 \
-     -d postgres:16-alpine
+   pnpm db:generate
    ```
-3. Update `.env` with your database credentials.
+5. Apply database migrations to Supabase:
+   ```bash
+   pnpm db:migrate
+   ```
+
+*(Optional Offline Development: Docker is supported for offline work without Supabase connectivity; see [`database/MIGRATIONS_AND_SEEDING.md`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/database/MIGRATIONS_AND_SEEDING.md) for details).*
 
 ### 4.3 Planned Development Commands
 * `pnpm dev`: Starts both frontend (Vite) and backend (Express) in watch mode.
@@ -95,6 +99,7 @@ All architectural guidelines, requirements, and operating procedures are maintai
 * `pnpm test`: Runs Vitest/Jest unit and integration test suites.
 * `pnpm db:generate`: Regenerates Prisma client from `database/schema.prisma`.
 * `pnpm db:migrate`: Executes pending migrations on the development database.
+* `pnpm db:seed`: Seeds reproducible demo data.
 
 ---
 

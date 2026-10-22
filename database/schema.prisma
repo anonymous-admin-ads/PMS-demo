@@ -1,9 +1,12 @@
 // ==============================================================================
 // Property Management System (PMS) - Prisma Database Schema
 // ==============================================================================
-// Target Database: PostgreSQL
+// Target Database: PostgreSQL hosted and managed by Supabase
 // Currency Standard: Indian Rupee (INR) stored with Decimal(12, 2)
 // Multi-tenancy: Strictly owner-scoped data boundaries
+// Connection Strategy:
+//   - url: Pooled connection string (Supabase connection pooler / Supavisor, port 6543)
+//   - directUrl: Direct connection string (port 5432) for Prisma migrations
 // ==============================================================================
 
 generator client {
@@ -11,8 +14,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ------------------------------------------------------------------------------

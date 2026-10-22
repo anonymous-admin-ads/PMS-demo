@@ -7,15 +7,31 @@
 
 ## 1. Threat Model & Security Posture
 
-In a multi-owner Property Management System, the primary security threats are:
+In a multi-owner Property Management System with a managed cloud database (Supabase PostgreSQL), the primary security threats are:
 1. **Cross-Tenant Data Leakage (IDOR):** Landlord A tampering with URL parameters (e.g. `/api/v1/bills/cuid_tenant_b`) to view or manipulate Landlord B's financial records, lease contracts, or tenant contacts.
-2. **Financial Manipulation:** Altering payment allocations, submitting negative payment amounts, or bypassing rent checks.
-3. **Malicious File Uploads:** Uploading executables or scripts masked as tenant identity documents.
-4. **Brute Force Credential Stuffing:** Automated guessing of landlord login passwords.
+2. **Credential & Secret Leakage:** Accidental exposure of database passwords, connection strings, or privileged Supabase keys (`service_role`) in client-side code bundles or public Git repositories.
+3. **In-Transit Eavesdropping:** Unencrypted database traffic between the application server and the hosted Supabase instance.
+4. **Financial Manipulation:** Altering payment allocations, submitting negative payment amounts, or bypassing rent checks.
+5. **Malicious File Uploads:** Uploading executables or scripts masked as tenant identity documents.
+6. **Brute Force Credential Stuffing:** Automated guessing of landlord login passwords.
 
 ---
 
-## 2. Authentication & Session Management
+## 2. Managed Database & Secret Management (Supabase)
+
+### 2.1 Server-Only Credential Isolation
+* **Zero Client Exposure:** Database connection strings (`DATABASE_URL`, `DIRECT_URL`), PostgreSQL passwords, and any privileged Supabase API keys (`service_role`) must NEVER be exposed to the browser or prefixed with `VITE_`.
+* **Git Hygiene:** All environment files (`.env`, `.env.*`) are excluded from Git via [`.gitignore`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/.gitignore). Only [`.env.example`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/.env.example) with sanitized placeholders may be committed.
+* **Encrypted In-Transit Connections (TLS/SSL):** All connections to Supabase (direct and pooled) must append `?sslmode=require` to enforce TLS 1.3 encryption across the public internet.
+
+### 2.2 Supabase Row Level Security (RLS) Review
+* **Current Application Architecture:** The Express backend acts as the single authenticated intermediary, connecting to Supabase via Prisma with a dedicated database role. All authorization is enforced at the application service layer using owner-scoped SQL filters (`where: { ownerId }`).
+* **Future Client Access Policy:** If direct client-side querying (e.g., via `@supabase/supabase-js` from the React SPA) is ever evaluated, **Supabase Row Level Security (RLS) MUST be explicitly enabled** on all public tables with strict `auth.uid() = owner_id` policies before enabling any client API access. Under the current Express monolith architecture, direct client access to Supabase is completely disabled.
+* **Least-Privilege Principle:** Use dedicated database credentials with permissions restricted to the application schema rather than superuser accounts wherever cloud platform controls permit.
+
+---
+
+## 3. Authentication & Session Management
 
 ### 2.1 Password Hashing & Storage
 * Passwords must NEVER be stored in plaintext.
@@ -33,14 +49,14 @@ In a multi-owner Property Management System, the primary security threats are:
 
 ---
 
-## 3. Strict Owner-Scoped Authorization (Anti-IDOR)
+## 4. Strict Owner-Scoped Authorization (Anti-IDOR)
 
-### 3.1 The Golden Rule of Multi-Tenancy
+### 4.1 The Golden Rule of Multi-Tenancy
 > [!IMPORTANT]
 > **EVERY SQL query interacting with tenant or financial data must filter by the authenticated `ownerId`.**
 > A client request must NEVER be permitted to specify `ownerId` in request bodies, query strings, or URL parameters.
 
-### 3.2 Implementation Pattern
+### 4.2 Implementation Pattern
 ```typescript
 // SECURE PATTERN: Tenant retrieval
 export async function getTenantById(ownerId: string, tenantId: string) {
@@ -69,7 +85,7 @@ export async function getTenantById(ownerId: string, tenantId: string) {
 
 ---
 
-## 4. Input Validation & Injection Defenses
+## 5. Input Validation & Injection Defenses
 
 1. **Schema Validation:** Every API route validates incoming payloads via **Zod** before invoking service layers. Unrecognized fields are stripped.
 2. **SQL Injection Defense:** All queries use Prisma ORM prepared statements and parameter binding. Raw SQL strings (`$queryRawUnsafe`) are strictly banned in business logic.
@@ -78,7 +94,7 @@ export async function getTenantById(ownerId: string, tenantId: string) {
 
 ---
 
-## 5. Document & File Upload Security (Module 9)
+## 6. Document & File Upload Security (Module 9)
 
 Landlords upload sensitive personal documents (Aadhaar cards, PAN cards, lease agreements).
 * **Storage Location:** Uploaded files are stored in a private directory (`uploads/`) outside the public web root (`public/`).
@@ -93,7 +109,7 @@ Landlords upload sensitive personal documents (Aadhaar cards, PAN cards, lease a
 
 ---
 
-## 6. Rate Limiting & Abuse Prevention
+## 7. Rate Limiting & Abuse Prevention
 
 * **Authentication Routes (`/api/v1/auth/login`):** Limited to **5 requests per 15 minutes** per IP address using in-memory token bucket or `express-rate-limit`.
 * **Public APIs:** Standard rate limit of 100 requests per minute per IP to protect against Denial of Service.
@@ -101,7 +117,7 @@ Landlords upload sensitive personal documents (Aadhaar cards, PAN cards, lease a
 
 ---
 
-## 7. Data Backup Protection & Disaster Recovery (Module 10)
+## 8. Data Backup Protection & Disaster Recovery (Module 10)
 
 * **Encrypted Archives:** Database backup dumps are compressed and protected with AES-256 encryption before transfer or storage.
 * **Checksum Verification:** Every backup log records a `SHA-256` checksum to verify that backup files have not suffered bit-rot or tampering.
@@ -109,7 +125,7 @@ Landlords upload sensitive personal documents (Aadhaar cards, PAN cards, lease a
 
 ---
 
-## 8. Security Testing Requirements
+## 9. Security Testing Requirements
 
 Before any release, the automated test suite must run explicit security checks:
 1. **Cross-Owner Access Test Suite:**

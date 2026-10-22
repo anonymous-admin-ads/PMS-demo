@@ -1,6 +1,6 @@
-# Migrations, Seeding, and Database Operations
+# Migrations, Seeding, and Database Operations (Supabase PostgreSQL)
 
-This guide provides the operational procedures for managing database migrations, test environments, and reproducible demo data for the **Property Management System (PMS)**.
+This guide provides the operational procedures for provisioning a **Supabase PostgreSQL** project, managing Prisma schema migrations, configuring connection pooling, and seeding reproducible demo data for the **Property Management System (PMS)**.
 
 ---
 
@@ -8,111 +8,136 @@ This guide provides the operational procedures for managing database migrations,
 
 > [!CAUTION]
 > **CRITICAL PRODUCTION SAFEGUARD:**
-> NEVER execute `prisma migrate reset`, `drop database`, or `prisma db push --force-reset` on a staging or production database. Running destructive commands on production will wipe financial histories and tenant data, violating audit compliance.
+> NEVER execute `prisma migrate reset`, `drop database`, or `prisma db push --force-reset` on a hosted Supabase staging or production database. Running destructive reset commands wipes historical ledgers, active leases, and audit trails.
 
-1. **Development Migrations Only:** Migrations must be generated and verified on local development databases before being committed.
-2. **Review SQL DDL:** Always inspect generated SQL migration files (`migrations/YYYYMMDDHHMMSS_name/migration.sql`) before applying them to any shared environment.
-3. **Automated Deployments:** In staging and production, only execute `prisma migrate deploy`, which applies pending migrations safely without schema resetting.
+1. **Keep `schema.prisma` as Source of Truth:** All table, column, enum, and index definitions must be authored in [`database/schema.prisma`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/database/schema.prisma).
+2. **Review SQL DDL Before Committing:** Always inspect generated SQL migration files (`database/migrations/YYYYMMDDHHMMSS_name/migration.sql`) to verify that no unintended drops or data losses occur.
+3. **Use Direct Connection for Migrations:** Supabase connection pooling (port 6543) does not support Prisma migration advisory locks or DDL transactions. Migrations must execute against the direct connection (`DIRECT_URL` on port 5432).
+4. **Deploy Safely in Production:** In hosted environments, only execute `prisma migrate deploy`, which applies pending versioned migrations without resetting tables.
 
 ---
 
-## 2. Local Development Database Setup
+## 2. Supabase Project Setup & Connection Configuration
 
-### 2.1 Prerequisites
-* PostgreSQL 15+ installed locally or running via Docker.
-* `pnpm` installed.
+Follow these steps in the Supabase web console:
 
-### 2.2 Docker Local Setup (Recommended)
-You can start a lightweight PostgreSQL container locally using Docker:
-```bash
-docker run --name pms-postgres \
-  -e POSTGRES_USER=pms_user \
-  -e POSTGRES_PASSWORD=pms_password \
-  -e POSTGRES_DB=pms_dev \
-  -p 5432:5432 \
-  -d postgres:16-alpine
-```
+### 2.1 Project Provisioning
+1. Log in to [Supabase](https://supabase.com) and click **New project**.
+2. **Project Name:** `pms-dev` (or `pms-staging` / `pms-prod`).
+3. **Database Password:** Generate a secure, high-entropy password (32+ characters). Store this securely in your password manager.
+4. **Region Selection:** Choose a region geographically closest to your primary user base (e.g., **`ap-south-1` Mumbai** for India/INR deployments) to minimize round-trip query latency.
+5. **Pricing Plan:** Select the **Free Tier** for development/testing, or **Pro Tier** for production (see [`docs/DEPLOYMENT_AND_BACKUP.md`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/docs/DEPLOYMENT_AND_BACKUP.md) for plan trade-offs).
+6. Click **Create new project** and wait for provisioning to finish (~1–2 minutes).
 
-### 2.3 Environment Variable
-In your `.env` file:
+### 2.2 Obtaining Connection Strings
+Navigate to **Project Settings** (gear icon) $\rightarrow$ **Database** $\rightarrow$ **Connection parameters**:
+
+#### A. Direct Connection (`DIRECT_URL`)
+* **Purpose:** Prisma CLI operations (`prisma migrate dev`, `prisma migrate deploy`, `prisma db push`).
+* **Port:** `5432`
+* **Format:**
+  ```text
+  postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
+  ```
+
+#### B. Connection Pooler (`DATABASE_URL`)
+* **Purpose:** Express application runtime (queries handled by Prisma Client).
+* **Port:** `6543` (Supavisor / Transaction Mode)
+* **Parameters:** Append `?pgbouncer=true&sslmode=require` so Prisma Client configures prepared statement handling appropriately for transaction pooling.
+* **Format:**
+  ```text
+  postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require
+  ```
+
+---
+
+## 3. Environment Variables Configuration
+
+Copy `.env.example` to `.env` in the repository root and insert your Supabase credentials:
+
 ```env
-DATABASE_URL="postgresql://pms_user:pms_password@localhost:5432/pms_dev?schema=public"
-DATABASE_TEST_URL="postgresql://pms_user:pms_password@localhost:5432/pms_test?schema=public"
+# Runtime connection via Supabase connection pooler (port 6543)
+DATABASE_URL="postgresql://postgres.yourprojectref:your_database_password@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+
+# Direct connection for Prisma CLI migrations (port 5432)
+DIRECT_URL="postgresql://postgres:your_database_password@db.yourprojectref.supabase.co:5432/postgres?sslmode=require"
+
+# Dedicated test database connection for automated test suites
+DATABASE_TEST_URL="postgresql://postgres:your_database_password@db.yourprojectref.supabase.co:5432/pms_test?sslmode=require"
 ```
+
+> [!TIP]
+> **Optional Offline Development (Docker):**
+> If developing offline without internet connectivity to Supabase, you can run a local PostgreSQL instance via Docker:
+> ```bash
+> docker run --name pms-postgres -e POSTGRES_USER=pms_user -e POSTGRES_PASSWORD=pms_password -e POSTGRES_DB=pms_dev -p 5432:5432 -d postgres:16-alpine
+> ```
+> In offline mode, set both `DATABASE_URL` and `DIRECT_URL` to `postgresql://pms_user:pms_password@localhost:5432/pms_dev?schema=public`. Docker is **not mandatory** when connecting directly to Supabase.
 
 ---
 
-## 3. Migration Workflow
+## 4. Prisma Migration Workflow
 
-### 3.1 Creating a New Migration
-When making changes to [`database/schema.prisma`](file:///c:/Users/skkin/OneDrive/Desktop/anonymous/demo-PMS/database/schema.prisma):
+### 4.1 Step 1: Generate Prisma Client
+Whenever `schema.prisma` is updated, regenerate the TypeScript types:
 ```bash
-# Generate the migration and apply it to the local development database
-pnpm db:migrate --name descriptive_migration_name
+pnpm db:generate
+# Underlying command: prisma generate --schema=database/schema.prisma
 ```
-This will:
-1. Compare `schema.prisma` with your local database schema.
-2. Generate a versioned SQL file under `database/migrations/`.
-3. Apply the SQL migration to `pms_dev`.
-4. Regenerate the Prisma Client typescript bindings.
 
-### 3.2 Inspecting Migration SQL
-Check the generated `.sql` file to confirm:
-* No unintended column drops (`DROP COLUMN`).
-* Correct column types (e.g. `NUMERIC(12, 2)` for currency).
-* Explicit foreign key constraints and `ON DELETE RESTRICT` clauses.
+### 4.2 Step 2: Create and Apply Development Migrations
+When adding new fields, models, or indexes in development:
+```bash
+pnpm db:migrate --name descriptive_migration_name
+# Underlying command: prisma migrate dev --schema=database/schema.prisma
+```
+This command:
+1. Connects to Supabase via `DIRECT_URL`.
+2. Compares `schema.prisma` with the remote database state.
+3. Generates a new migration folder under `database/migrations/YYYYMMDDHHMMSS_descriptive_migration_name/migration.sql`.
+4. Executes the migration SQL against the database.
+5. Regenerates the Prisma Client.
 
-### 3.3 Safe Migration Deployment (Staging & Production)
+### 4.3 Step 3: Deploy Migrations to Staging & Production
+In automated CI/CD pipelines and deployment runs:
 ```bash
 pnpm prisma migrate deploy --schema=database/schema.prisma
 ```
-This runs strictly the unapplied migrations recorded in `_prisma_migrations` table without prompting or resetting data.
+This reads the migration history recorded in the `_prisma_migrations` table and applies only unexecuted migrations without prompting or resetting data.
 
 ---
 
-## 4. Test Database Isolation
+## 5. Direct Connection vs. Connection Pooler (Technical Comparison)
 
-To prevent test runs from polluting or corrupting development data:
-1. Always maintain a separate test database (`pms_test`).
-2. Run automated tests with `NODE_ENV=test`, pointing `DATABASE_URL` to `DATABASE_TEST_URL`.
-3. The test runner automatically truncates test tables between suites while preserving schema migrations.
+| Dimension | Direct Connection (`DIRECT_URL`) | Connection Pooler (`DATABASE_URL`) |
+|---|---|---|
+| **Port** | `5432` | `6543` |
+| **Technology** | Standard PostgreSQL Server | Supavisor (Supabase Next-Gen Pooler) |
+| **Mode** | Session-based connection | Transaction-based pooling |
+| **Connection Cap** | Limited by database compute (e.g. 15–60 connections) | Hundreds of concurrent client connections |
+| **Prisma Migrations (`migrate dev/deploy`)** | **Required** (Supports DDL transactions & advisory locks) | **Incompatible** (Fails due to lack of advisory lock support) |
+| **Prisma Client Runtime Queries** | Functional, but risks connection pool exhaustion | **Recommended** (Protects database from concurrent traffic spikes) |
+| **SSL Enforcement** | Required (`sslmode=require`) | Required (`sslmode=require`) |
 
 ---
 
-## 5. Repeatable Demo Seeding
+## 6. Repeatable Demo Seeding on Supabase
 
-A comprehensive, deterministic seed script (`database/seed.js` or `database/seed.ts`) will be implemented in Phase 2 to populate a rich demo environment.
+A deterministic seed script (`database/seed.js` or `database/seed.ts`) will be implemented in Phase 2 to populate the Supabase database with realistic property management data.
 
-### 5.1 Demo Dataset Specification
-The standard demo dataset contains:
-* **1 Master Owner:** `owner@demo-pms.in` (Password: `DemoPMS@2026`).
+### 6.1 Demo Dataset Specification
+* **Master Owner:** `owner@demo-pms.in` (Password: `DemoPMS@2026`).
 * **3 Properties:**
   1. *Lotus Apartments* (Residential - 12 units).
   2. *Greenwood Villa* (Independent House - 1 unit).
   3. *Sunrise Commercial Plaza* (Commercial - 6 units).
 * **15 Units:** Ranging from 1 BHK to 3 BHK and retail shops, rents from ₹8,000 to ₹45,000.
 * **10 Tenants:** Complete with phone numbers, emails, and Aadhaar/PAN placeholders.
-* **8 Active Tenancies:** With realistic move-in dates and security deposit statuses.
-* **Billing & Ledger History:**
-  - 3 months of historical rent charges (`2026-08`, `2026-09`, `2026-10`).
-  - Realistic water bill meter readings and split charges.
-  - Partial payments, fully paid charges, and 2 overdue tenant balances for realistic dashboard KPI demonstration.
-* **Sample Documents:** Attached PDF placeholders for lease agreements and inspection reports.
+* **8 Active Tenancies:** With realistic move-in dates and security deposit tracking.
+* **3 Months of Financial History:** Rent charges, water meter calculations, partial payments, and ledger balances.
 
-### 5.2 Executing Seed
+### 6.2 Executing the Seed
 ```bash
 pnpm db:seed
 ```
-The seed script will be completely idempotent: if run repeatedly, it clears demo entities cleanly or skips existing records based on unique identifiers.
-
----
-
-## 6. Disaster Recovery & Emergency Reset (Development Only)
-
-If a developer's local schema gets corrupted or out of sync during experimentation:
-```bash
-# ONLY run this in local development!
-pnpm prisma migrate reset --schema=database/schema.prisma
-```
-This drops the development database, reapplies all historical migrations from scratch, and runs the seed script.
-
+The seed script will be completely idempotent, checking for existing records before inserting to prevent duplicate entries on hosted Supabase environments.

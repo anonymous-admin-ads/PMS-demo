@@ -212,6 +212,7 @@ mindmap
 * Uploaded documents stored with sanitized filenames outside the public web root.
 
 ### 5.3 Reliability & Financial Correctness
+* **Managed Database:** PostgreSQL 15+ hosted and managed by Supabase, utilizing dual connection strings (`DATABASE_URL` for runtime transaction pooling and `DIRECT_URL` for Prisma DDL migrations).
 * Database transactions (`prisma.$transaction`) wrapping all multi-record financial mutations.
 * Zero floating-point arithmetic on currency values.
 * Absolute audit retention: soft-deletions on all properties and tenants with financial history.

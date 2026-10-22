@@ -15,7 +15,9 @@ Before proposing, editing, or generating any code, database schemas, or API endp
 ---
 
 ## 2. Cardinal Architecture & Security Constraints
+* **Managed Database Platform:** The database is **PostgreSQL hosted and managed by Supabase**. Prisma uses a dual-connection configuration (`DATABASE_URL` for runtime pooling on port 6543, `DIRECT_URL` for DDL migrations on port 5432).
 * **Owner-Scoped Data Isolation:** Every database read, write, update, and delete MUST strictly filter by the authenticated `ownerId`. Never trust client-supplied owner IDs in query parameters or request bodies.
+* **Server-Only Secrets:** NEVER prefix database connection URLs, database passwords, or privileged keys with `VITE_` or expose them to frontend client code.
 * **Financial Precision:** NEVER use binary floating-point arithmetic (e.g. JavaScript standard `Number`) for monetary values. Use Prisma `Decimal` or `decimal.js` with exact rounding.
 * **Transactional Integrity:** All multi-step financial or lifecycle operations (payment allocation, move-out settlement, bill batching) MUST run inside an atomic `prisma.$transaction`.
 * **Zero Overlapping Occupancy:** A unit must never have more than one `ACTIVE` tenancy simultaneously.
@@ -25,7 +27,7 @@ Before proposing, editing, or generating any code, database schemas, or API endp
 ---
 
 ## 3. Strict Rules Against Unapproved Actions
-* **NO Destructive Production Operations:** NEVER run `prisma migrate reset`, `drop database`, or force migrations against non-development environments.
+* **NO Destructive Database Operations:** NEVER execute `prisma migrate reset`, `drop database`, or `prisma db push --force-reset` against hosted Supabase databases or any non-development environment.
 * **NO Scope Creep:** Strictly implement features assigned to the active phase. Do not implement out-of-scope features (e.g., third-party payment gateways, automated WhatsApp bots, complex ERP role-hierarchies) without client sign-off.
 * **NO Faked Tests or Stubs:** Never bypass failing tests or write tests that assert `true === true` to fake quality gates.
 

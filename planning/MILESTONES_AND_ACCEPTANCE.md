@@ -9,9 +9,9 @@
 
 | Phase | Milestone Name | Measurable Acceptance Criteria |
 |---|---|---|
-| **Phase 0** | Baseline & Architecture | All distributed documentation and Prisma schema created, reviewed, and internally linked. |
+| **Phase 0** | Baseline & Architecture | All distributed documentation and Prisma schema created, reviewed, and configured for Supabase managed PostgreSQL (`DATABASE_URL` pooler and `DIRECT_URL` direct). |
 | **Phase 1** | Scaffolding & CI | `apps/web` and `apps/api` scaffolded; `pnpm typecheck`, `pnpm lint`, and CI pass without warnings. |
-| **Phase 2** | Database & Auth | Prisma migrations applied in local dev; bcrypt/JWT auth working; cross-owner test denies access 100% of the time. |
+| **Phase 2** | Database & Auth | Supabase project connected via SSL; Prisma migrations applied successfully via `DIRECT_URL`; bcrypt/JWT auth working; cross-owner test denies access 100% of the time. |
 | **Phase 3** | Properties & Tenancies | Properties, units, and tenants created via UI; active occupancy concurrency guard rejects overlapping tenancies. |
 | **Phase 4** | Billing & Payments Engine | Rent/water charges generated; duplicate `periodKey` charges rejected; partial payments allocated via FIFO in atomic transaction. |
 | **Phase 5** | Ledger & Dashboard | Running ledger reconciles debits/credits; executive dashboard calculates occupancy and arrears from real DB queries. |
